@@ -61,34 +61,63 @@ void OAuth2::getToken(string& response, string& token, string& token_type, strin
   {
     throw OAuthException(MalformedOAuthResponse, "Malformed OAuth response");
   }
-  
+
 }
-void OAuth2::addOAuthHeaderOauth2(HttpRequest* r, string token) const {
+void OAuth2::getNewTokenFromV1toV2(string& response, string& token)
+{
+  stringstream s;
+  ptree pt;
+
+  s << response;
+
+  read_json(s, pt);
+
+  token = pt.get<string>("oauth2_token");
+  //Note need to create an object to convert v1 object to v2
+}
+void OAuth2::addOAuthHeader(HttpRequest* r, string token) const {
   stringstream ss;
 
   ss << "Bearer " ;
 
-  string signatureMethod;
-  string signature;
-
-  switch (securityMethod_) {
-    case OAuthSecPlaintext:
-      {
-        signatureMethod="PLAINTEXT";
-        stringstream sst;
-        sst <<  consumerKey_<< ":" << consumerSecret_;
-        signature = sst.str();
-      }
-      break;
-    default:
-      throw OAuthException(UnsupportedMethod,
-        "Only Plaintext signature supported");
-  }
-  ss << signature;
   string header = ss.str();
   r->addHeader("Authorization", header);
 }
+void OAuth2::addOAuthBasicHeader(HttpRequest* r, string token, string token_secret) const {
+  stringstream ss;
 
+  ss << "Basic "<<  token << ":" << token_secret;
+
+  string header = ss.str();
+
+  r->addHeader("Authorization", header);
+}
+void OAuth2::addContentTypeHeader(HttpRequest* r) const {
+  stringstream ss;
+
+  ss << "application/json" ;
+
+  string header = ss.str();
+  r->addHeader("Content-Type", header);
+}
+void OAuth2::fetchTokenV1toV2(string url, string tokenOauth1, string tokenSecretOauth1)
+{
+  unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
+
+  r->setMethod(HttpPostRequest);
+
+  r->addData("oauth1_token_secret", tokenSecretOauth1);
+  r->addData("oauth1_token", tokenOauth1);
+
+  if(r->execute() || r->getResponseCode() != 200)
+  {
+    stringstream ss;
+    ss << "Got http error " << r->getResponseCode();
+    throw OAuthException(HttpRequestFailed, ss.str());
+  }
+  string response((char *)r->getResponse(), r->getResponseSize());
+  getNewTokenFromV1toV2(response , accessToken_ );
+}
 void OAuth2::fetchAuthorization(string Response_type)
 {//https://www.dropbox.com/1/oauth2/authorize same as below
   string url = "https://www.dropbox.com/oauth2/authorize";
@@ -104,6 +133,7 @@ void OAuth2::fetchAuthorization(string Response_type)
   cout << "Enter Authorization code provided after authorization: " << endl;
   getline(std::cin, authorizationCode_);
 }
+
 void OAuth2::fetchRequestTokenOauth2(string url)
 {
   unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
@@ -124,42 +154,6 @@ void OAuth2::fetchRequestTokenOauth2(string url)
   string response((char *)r->getResponse(), r->getResponseSize());
   getToken(response, accessToken_, tokenType_, accountid_);
 }
-// void OAuth2::fetchRequestToken(string url) {
-//   unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
-//
-//   r->setMethod(HttpPostRequest);
-//
-//   addOAuthHeader(r.get(), "", "");
-//
-//   if (r->execute() || r->getResponseCode() != 200) {
-//     stringstream ss;
-//     ss << "Got http error " << r->getResponseCode();
-//
-//     throw OAuthException(HttpRequestFailed, ss.str());
-//   }
-//
-//   string response((char *)r->getResponse(), r->getResponseSize());
-//   getTokenAndSecret(response, requestToken_, requestSecret_);
-// }
-
-// void OAuth2::fetchAccessToken(string url) {
-//   unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
-//
-//   r->setMethod(HttpPostRequest);
-//
-//   addOAuthHeader(r.get(), requestToken_, requestSecret_);
-//
-//   if (r->execute() || r->getResponseCode() != 200) {
-//     stringstream ss;
-//     ss << "Got http error " << r->getResponseCode();
-//
-//     throw OAuthException(HttpRequestFailed, ss.str());
-//   }
-//
-//   string response((char *)r->getResponse(), r->getResponseSize());
-//   getTokenAndSecret(response, accessToken_, accessSecret_);
-// }
-
 string OAuth2::getAccessToken() const {
   return accessToken_;
 }
@@ -167,10 +161,15 @@ string OAuth2::getAccessToken() const {
 void OAuth2::setAccessToken(string token) {
   accessToken_ = token;
 }
-
+void OAuth2::addOAuthAccessContentType(HttpRequest* r) const {
+  addContentTypeHeader(r);
+}
+void OAuth2::addOAuthBasicHeader(HttpRequest* r) const {
+  addOAuthBasicHeader(r, consumerKey_, consumerSecret_);
+}
 void OAuth2::addOAuthAccessHeader(HttpRequest* r) const {
-  addOAuthHeaderOauth2(r, accessToken_);
+  addOAuthHeader(r, accessToken_);
 }
 /*TODO
-Implement errors management for Dropbox API
+Implement errors management for Dropbox API v2
 */

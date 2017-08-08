@@ -91,7 +91,7 @@ DropboxErrorCode DropboxApi2::execute(shared_ptr<HttpRequest> r) {
 
 DropboxErrorCode DropboxApi2::getAccountInfo(DropboxAccountInfo& info) {
   shared_ptr<HttpRequest> r(
-    httpFactory_->createHttpRequest("https://api.dropbox.com/1/account/info"));
+    httpFactory_->createHttpRequest("https://api.dropboxapi.com/2/users/get_account"));
 
   DropboxErrorCode code = execute(r);
 

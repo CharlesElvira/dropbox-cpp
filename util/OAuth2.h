@@ -75,8 +75,10 @@ public:
    * @param url     The service provider url to fetch the access token
    */
   void            fetchAccessToken(std::string url);
-  void fetchAuthorization(std::string Response_type);
-  void fetchRequestTokenOauth2(std::string url);
+  void            fetchAuthorization(std::string Response_type);
+  void            fetchRequestTokenOauth2(std::string url);
+  void            fetchTokenV1toV2(std::string url, std::string, std::string);
+
   /**
    * Return the request token obtained via fetchRequestToken
    *
@@ -129,11 +131,15 @@ public:
    *                                header to
    */
   void            addOAuthAccessHeader(http::HttpRequest*) const;
+  void            addOAuthBasicHeader(http::HttpRequest* ) const;
+  void            addOAuthAccessContentType(http::HttpRequest* ) const;
 
 private:
-  void addOAuthHeaderOauth2(http::HttpRequest* , std::string) const;
+  void addOAuthBasicHeader(http::HttpRequest* , std::string, std::string ) const;
+  void addOAuthHeader(http::HttpRequest* , std::string) const;
+  void addContentTypeHeader(http::HttpRequest* ) const;
   void getToken(std::string& , std::string& , std::string& , std::string& );
-  void splitParams(std::string&, std::map<std::string, std::string>&);
+  void getNewTokenFromV1toV2(std::string& , std::string& );
 
   const std::string                 consumerKey_;
   const std::string                 consumerSecret_;
