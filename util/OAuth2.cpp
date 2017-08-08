@@ -20,97 +20,63 @@
 
 #include <sstream>
 
-using namespace oauth2;
+using namespace boost::property_tree;
+using namespace boost::property_tree::json_parser;
+using namespace oauth;
 using namespace std;
 using namespace http;
-OAuth2::OAuth2(string key, string version, OAuthSecurityMethod method) :
+OAuth2::OAuth2(string key, string secret, string version, OAuthSecurityMethod method) :
     consumerKey_(key),
     consumerSecret_(secret),
     securityMethod_(method),
     oauthVersion_(version),
     requestFactory_(HttpRequestFactory::createFactory()) {
-    fetchAuthorization("code", key);
-}
-OAuth2::OAuth2(string key,
-  string secret, string version, OAuthSecurityMethod method) :
-    consumerKey_(key),
-    consumerSecret_(secret),
-    securityMethod_(method),
-    oauthVersion_(version),
-    requestFactory_(HttpRequestFactory::createFactory()) {
+
 }
 
-void OAuth2::splitParams(string& response, map<string, string>& params) {
-  size_t idx = 0;
-  size_t len  = response.size();
+void OAuth2::getToken(string& response, string& token, string& token_type, string& id)
+{
+  stringstream s;
+  ptree pt;
 
-  do {
-    size_t ampPos = response.find("&", idx);
-    if (ampPos == string::npos) {
-      ampPos = len;
-    }
+  s << response;
 
-    string paramStr = response.substr(idx, ampPos - idx);
-    size_t eqPos = paramStr.find("=");
-    if (eqPos == string::npos) {
-      throw OAuthException(MalformedOAuthResponse, "Malformed OAuth response");
-    }
+  read_json(s, pt);
 
-    string key = paramStr.substr(0, eqPos);
-    string value = paramStr.substr(eqPos + 1);
+  token = pt.get<string>("access_token");
+  token_type = pt.get<string>("token_type");
 
-    params[key] = value;
+  boost::optional<string> ptOptAccId = pt.get_optional<string>("account_id");
+  boost::optional<string> ptOptTeamId = pt.get_optional<string>("team_id");
 
-    idx = ampPos + 1;
-  } while(idx < len);
-}
-
-void OAuth2::getTokenAndSecret(string& response, string& token, string& secret) {
-  map<string, string> params;
-
-  splitParams(response, params);
-
-  auto i = params.find("oauth_token");
-  if (i == params.end()) {
+  if(!ptOptAccId  && ptOptTeamId)
+  {
+    id = ptOptTeamId.get();
+  }
+  else if (ptOptAccId  && !ptOptTeamId )
+  {
+    id = ptOptAccId.get();
+  }
+  else
+  {
     throw OAuthException(MalformedOAuthResponse, "Malformed OAuth response");
   }
-
-  token = i->second;
-
-  i = params.find("oauth_token_secret");
-  if (i == params.end()) {
-    throw OAuthException(MalformedOAuthResponse, "Malformed OAuth response");
-  }
-
-  secret = i->second;
+  
 }
-void OAuth2::addOAuthHeaderOauth2(HttpRequest* r, string token, string secret) const {
+void OAuth2::addOAuthHeaderOauth2(HttpRequest* r, string token) const {
   stringstream ss;
 
-  ss << "Bearer <\"" << token ;
-
-  string header = ss.str();
-  r->addHeader("Authorization", header);
-}
-
-void OAuth2::addOAuthHeader(HttpRequest* r, string token, string secret) const {
-  stringstream ss;
-
-  ss << "OAuth oauth_version=\"" << oauthVersion_ << "\", ";
-  ss << "oauth_consumer_key=\"" << consumerKey_ << "\", ";
-
-  if (token.compare("")) {
-    ss << "oauth_token=\"" << token << "\", ";
-  }
+  ss << "Bearer " ;
 
   string signatureMethod;
   string signature;
+
   switch (securityMethod_) {
     case OAuthSecPlaintext:
       {
         signatureMethod="PLAINTEXT";
         stringstream sst;
-        sst << consumerSecret_ << "&" << secret;
+        sst <<  consumerKey_<< ":" << consumerSecret_;
         signature = sst.str();
       }
       break;
@@ -118,26 +84,25 @@ void OAuth2::addOAuthHeader(HttpRequest* r, string token, string secret) const {
       throw OAuthException(UnsupportedMethod,
         "Only Plaintext signature supported");
   }
-
-  ss << "oauth_signature_method=\"" << signatureMethod << "\", ";
-  ss << "oauth_signature=\"" << signature << "\"";
-
+  ss << signature;
   string header = ss.str();
   r->addHeader("Authorization", header);
 }
-void OAuth2::fetchAuthorization(string Response_type, string key)
-{
+
+void OAuth2::fetchAuthorization(string Response_type)
+{//https://www.dropbox.com/1/oauth2/authorize same as below
   string url = "https://www.dropbox.com/oauth2/authorize";
   stringstream ss;
-  ss << "?response_type=\"" << Response_type << "\", ";
-  ss << "client_id=\"" << key;
+  ss << url;
+  ss << "?response_type=" << Response_type << "&";
+  ss << "client_id=" << consumerKey_;
 
-  url.push_back(ss.str());
+  url = ss.str();
 
-  cout<<".::Authorization to access Dropbox::."<<endl;
-  cout<<"Go to " << url << " to authorize" << endl;
-  cout << "Enter Authorization code provided after authorization:" << endl;
-  authorizationCode_ << cin;
+  cout<<"\t\t.::Authorization to access Dropbox::."<< endl << endl;
+  cout<<"\tTo authorize go to: \n" << url << endl;
+  cout << "Enter Authorization code provided after authorization: " << endl;
+  getline(std::cin, authorizationCode_);
 }
 void OAuth2::fetchRequestTokenOauth2(string url)
 {
@@ -145,83 +110,67 @@ void OAuth2::fetchRequestTokenOauth2(string url)
 
   r->setMethod(HttpPostRequest);
 
-  r->addParam("code", authorizationCode_);
+  r->addParam("client_secret", consumerSecret_);
+  r->addParam("client_id", consumerKey_);
   r->addParam("grant_type", "authorization_code");
-  r->addParam("client_id", token);
-  r->addParam("client_secret", secret);
-
-  addOAuthHeader(r.get(), "", "");
+  r->addParam("code", authorizationCode_);
 
   if (r->execute() || r->getResponseCode() != 200) {
     stringstream ss;
     ss << "Got http error " << r->getResponseCode();
-
     throw OAuthException(HttpRequestFailed, ss.str());
   }
 
   string response((char *)r->getResponse(), r->getResponseSize());
-  getTokenAndSecret(response, requestToken_, requestSecret_);
+  getToken(response, accessToken_, tokenType_, accountid_);
 }
-void OAuth2::fetchRequestToken(string url) {
-  unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
+// void OAuth2::fetchRequestToken(string url) {
+//   unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
+//
+//   r->setMethod(HttpPostRequest);
+//
+//   addOAuthHeader(r.get(), "", "");
+//
+//   if (r->execute() || r->getResponseCode() != 200) {
+//     stringstream ss;
+//     ss << "Got http error " << r->getResponseCode();
+//
+//     throw OAuthException(HttpRequestFailed, ss.str());
+//   }
+//
+//   string response((char *)r->getResponse(), r->getResponseSize());
+//   getTokenAndSecret(response, requestToken_, requestSecret_);
+// }
 
-  r->setMethod(HttpPostRequest);
-
-  addOAuthHeader(r.get(), "", "");
-
-  if (r->execute() || r->getResponseCode() != 200) {
-    stringstream ss;
-    ss << "Got http error " << r->getResponseCode();
-
-    throw OAuthException(HttpRequestFailed, ss.str());
-  }
-
-  string response((char *)r->getResponse(), r->getResponseSize());
-  getTokenAndSecret(response, requestToken_, requestSecret_);
-}
-
-void OAuth2::fetchAccessToken(string url) {
-  unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
-
-  r->setMethod(HttpPostRequest);
-
-  addOAuthHeader(r.get(), requestToken_, requestSecret_);
-
-  if (r->execute() || r->getResponseCode() != 200) {
-    stringstream ss;
-    ss << "Got http error " << r->getResponseCode();
-
-    throw OAuthException(HttpRequestFailed, ss.str());
-  }
-
-  string response((char *)r->getResponse(), r->getResponseSize());
-  getTokenAndSecret(response, accessToken_, accessSecret_);
-}
-
-string OAuth2::getRequestToken() const {
-  return requestToken_;
-}
-
-string OAuth2::getRequestTokenSecret() const {
-  return requestSecret_;
-}
+// void OAuth2::fetchAccessToken(string url) {
+//   unique_ptr<HttpRequest> r(requestFactory_->createHttpRequest(url));
+//
+//   r->setMethod(HttpPostRequest);
+//
+//   addOAuthHeader(r.get(), requestToken_, requestSecret_);
+//
+//   if (r->execute() || r->getResponseCode() != 200) {
+//     stringstream ss;
+//     ss << "Got http error " << r->getResponseCode();
+//
+//     throw OAuthException(HttpRequestFailed, ss.str());
+//   }
+//
+//   string response((char *)r->getResponse(), r->getResponseSize());
+//   getTokenAndSecret(response, accessToken_, accessSecret_);
+// }
 
 string OAuth2::getAccessToken() const {
   return accessToken_;
-}
-
-string OAuth2::getAccessTokenSecret() const {
-  return accessSecret_;
 }
 
 void OAuth2::setAccessToken(string token) {
   accessToken_ = token;
 }
 
-void OAuth2::setAccessTokenSecret(string secret) {
-  accessSecret_ = secret;
-}
-
 void OAuth2::addOAuthAccessHeader(HttpRequest* r) const {
-  addOAuthHeader(r, accessToken_, accessSecret_);
+  addOAuthHeaderOauth2(r, accessToken_);
 }
+/*TODO
+Implement errors management for Dropbox API
+*/

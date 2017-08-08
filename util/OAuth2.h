@@ -16,23 +16,28 @@
 #ifndef __OAUTH_H__
 #define __OAUTH_H__
 
-#include "util/HttpRequestFactory.h"
-#include "util/HttpRequest.h"
+#include "HttpRequestFactory.h"
+#include "HttpRequest.h"
 
 #include <memory>
 #include <map>
 #include <string>
+#include <iostream>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
-namespace oauth2 {
+namespace oauth {
 // Currently only supports plaintext
 enum OAuthSecurityMethod {
   OAuthSecPlaintext,
 };
-
+enum AccountType {
+  account_id,
+  team_id,
+};
 class OAuth2 {
 public:
-  OAuth2(const std::string consumer_key,
-    const std::string consumer_secret, const std::string version = "2.0");
+
   /**
    * Create an OAuth instance
    *
@@ -42,8 +47,7 @@ public:
    * @param method            The OAUth security method defined in
    *                          OAuthSecurityMethod
    */
-  OAuth2(const std::string consumer_key,
-    const std::string consumer_secret,
+  OAuth2(const std::string consumer_key, std::string consumer_secret,
     const std::string version = "2.0",
     OAuthSecurityMethod method = OAuthSecPlaintext);
 
@@ -71,8 +75,8 @@ public:
    * @param url     The service provider url to fetch the access token
    */
   void            fetchAccessToken(std::string url);
-  void fetchAuthorization(string Response_type, string key);
-  void fetchRequestTokenOauth2(string url, string token, string secret);
+  void fetchAuthorization(std::string Response_type);
+  void fetchRequestTokenOauth2(std::string url);
   /**
    * Return the request token obtained via fetchRequestToken
    *
@@ -127,9 +131,8 @@ public:
   void            addOAuthAccessHeader(http::HttpRequest*) const;
 
 private:
-  void addOAuthHeaderOauth2(HttpRequest* , std::string , std::string secret) const;
-  void addOAuthHeader(http::HttpRequest*, std::string, std::string) const;
-  void getTokenAndSecret(std::string&, std::string&, std::string&);
+  void addOAuthHeaderOauth2(http::HttpRequest* , std::string) const;
+  void getToken(std::string& , std::string& , std::string& , std::string& );
   void splitParams(std::string&, std::map<std::string, std::string>&);
 
   const std::string                 consumerKey_;
@@ -139,13 +142,15 @@ private:
 
   http::HttpRequestFactory* const   requestFactory_;
 
-  std::string                       requestToken_;
-  std::string                       requestSecret_;
 
   std::string                       accessToken_;
-  std::string                       accessSecret_;
+
+  std::string                       accountid_;
+  std::string                       tokenType_;
 
   std::string                       authorizationCode_;
+
+  AccountType                       accountType_;
 };
 }
 
